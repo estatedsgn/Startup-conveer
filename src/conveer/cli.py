@@ -315,7 +315,7 @@ def org_cmd() -> None:
 def run_goal_cmd(
     goal: str = typer.Argument(..., help="The goal to delegate through the agent tree"),
     root: str = typer.Option("chief", "--root", help="Top orchestrator to start from"),
-    verify: bool = typer.Option(False, "--verify", help="Have the Critic verify worker outputs"),
+    verify: bool = typer.Option(True, "--verify/--no-verify", help="Validator checks + fixes worker outputs (Factory loop)"),
 ) -> None:
     """Delegate a goal: chief -> leads -> workers, communicating via A2A."""
     from . import config as cfg
