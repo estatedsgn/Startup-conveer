@@ -1,0 +1,25 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# runtime artifacts
+runs/
+*.sqlite
+*.sqlite3
+.conveer/
+
+# tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
