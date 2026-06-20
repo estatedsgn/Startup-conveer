@@ -3,7 +3,7 @@ import json
 from langgraph.types import Command
 
 from conveer import graph as G
-from conveer.graph import extract_json, resolve_selection
+from conveer.graph import extract_json, resolve_selection, select_greenlit
 from conveer.runner import RunResult
 
 
@@ -81,3 +81,81 @@ def test_graph_full_flow_completes(monkeypatch):
     assert res["report_md"].startswith("# Validation Report")
     assert res["decision"]["summary"] == "two to iterate"
     assert res["cost"]["tokens"] >= 0
+    # all decisions were "iterate" -> venture studio is gated off, no exec plan
+    assert res.get("greenlit_ideas", []) == []
+    assert "execution_plan" not in res
+
+
+def test_select_greenlit_picks_only_go():
+    state = {
+        "selected_ideas": [{"id": "idea-1"}, {"id": "idea-2"}, {"id": "idea-3"}],
+        "decision": {
+            "decisions": [
+                {"idea_id": "idea-1", "decision": "go"},
+                {"idea_id": "idea-2", "decision": "iterate"},
+                {"idea_id": "idea-3", "decision": "GO"},  # case-insensitive
+            ]
+        },
+    }
+    assert select_greenlit(state) == [{"id": "idea-1"}, {"id": "idea-3"}]
+
+
+def _fake_invoke_with_go(role, prompt, **kwargs):
+    """Like _fake_invoke but the CEO green-lights idea-1, and the venture
+    studio specialists return plausible JSON objects."""
+    if role == "ceo":
+        return RunResult(
+            text=json.dumps(
+                {
+                    "summary": "one to build",
+                    "decisions": [
+                        {"idea_id": "idea-1", "title": "T1", "decision": "go", "next_step": "build"},
+                        {"idea_id": "idea-2", "decision": "no-go", "next_step": "drop"},
+                    ],
+                    "priority_order": ["idea-1"],
+                    "needs_human": [],
+                }
+            ),
+            session_id="ceo",
+        )
+    if role in {"market_researcher", "product_manager", "tech_lead",
+                "growth_marketer", "finance"}:
+        return RunResult(text=json.dumps({"note": f"{role} plan"}), session_id=role)
+    if role == "coo":
+        return RunResult(
+            text=json.dumps(
+                {
+                    "summary": "ship idea-1",
+                    "ventures": [
+                        {"idea_id": "idea-1", "title": "T1", "readiness": "ready",
+                         "first_30_days": ["build mvp"], "owner": "tech_lead",
+                         "kpis": ["signups"], "key_risk": "distribution"}
+                    ],
+                    "resource_plan": "1 eng + agents",
+                    "recommended_focus": "idea-1",
+                    "needs_human": ["approve budget"],
+                }
+            ),
+            session_id="coo",
+        )
+    return _fake_invoke(role, prompt, **kwargs)
+
+
+def test_graph_venture_studio_runs_for_greenlit(monkeypatch):
+    monkeypatch.setattr(G, "invoke_role", _fake_invoke_with_go)
+    graph = G.build_graph()
+    cfg = {"configurable": {"thread_id": "t-venture"}}
+
+    graph.invoke({"run_id": "t-venture", "topic": "x", "num_ideas": 3}, cfg)
+    graph.invoke(Command(resume=["idea-1", "idea-2"]), cfg)
+    res = graph.invoke(Command(resume={"__skip__": True}), cfg)
+
+    assert "__interrupt__" not in res or not res["__interrupt__"]
+    assert [i["id"] for i in res["greenlit_ideas"]] == ["idea-1"]
+    assert len(res["market_research"]) == 1
+    assert len(res["product_plans"]) == 1
+    assert len(res["tech_assessments"]) == 1
+    assert len(res["gtm_plans"]) == 1
+    assert len(res["finance_models"]) == 1
+    assert res["execution_plan"]["recommended_focus"] == "idea-1"
+    assert res["execution_plan"]["ventures"][0]["idea_id"] == "idea-1"

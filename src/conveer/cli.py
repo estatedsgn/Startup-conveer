@@ -85,6 +85,14 @@ def _finalize(run_id: str, state: dict[str, Any]) -> Path:
     storage.save_json(run_id, "methodologies.json", state.get("methodologies", []))
     storage.save_text(run_id, "report.md", state.get("report_md", ""))
     storage.save_json(run_id, "decision.json", state.get("decision", {}))
+    # phase 1: venture studio artifacts (present only if the CEO green-lit ideas)
+    if state.get("execution_plan"):
+        storage.save_json(run_id, "market_research.json", state.get("market_research", []))
+        storage.save_json(run_id, "product_plans.json", state.get("product_plans", []))
+        storage.save_json(run_id, "tech_assessments.json", state.get("tech_assessments", []))
+        storage.save_json(run_id, "gtm_plans.json", state.get("gtm_plans", []))
+        storage.save_json(run_id, "finance_models.json", state.get("finance_models", []))
+        storage.save_json(run_id, "execution_plan.json", state.get("execution_plan", {}))
     storage.save_json(run_id, "run.json", {
         "run_id": run_id, "topic": state.get("topic"),
         "cost": state.get("cost", {}), "log": state.get("log", []),
@@ -103,6 +111,14 @@ def _print_outcome(run_id: str, state: dict[str, Any], html_path: Path) -> None:
         console.print(
             f"  • {d.get('idea_id')} [{d.get('decision')}] — {d.get('next_step','')}"
         )
+    plan = state.get("execution_plan", {}) or {}
+    if plan:
+        console.print(f"\n[bold]COO:[/bold] {plan.get('summary','—')}")
+        console.print(f"[bold]Focus:[/bold] {plan.get('recommended_focus','—')}")
+        for v in plan.get("ventures", []):
+            console.print(
+                f"  • {v.get('idea_id')} [{v.get('readiness')}] — owner: {v.get('owner','?')}"
+            )
     console.print(f"[dim]cost: {cost.get('tokens',0)} tokens / ${cost.get('usd',0)}[/dim]")
     console.print(f"[bold]Report:[/bold] {html_path}")
 

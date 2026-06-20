@@ -28,12 +28,64 @@ def _decision_tag(decision: str) -> str:
     return f'<span class="tag {cls}">{html.escape(decision or "?")}</span>'
 
 
+def _readiness_tag(readiness: str) -> str:
+    cls = {"ready": "go", "hold": "nogo", "needs_work": "iterate"}.get(
+        (readiness or "").lower(), "iterate"
+    )
+    return f'<span class="tag {cls}">{html.escape(readiness or "?")}</span>'
+
+
+def _execution_plan_html(plan: dict[str, Any]) -> str:
+    """Render the COO's consolidated execution plan, if the venture studio ran."""
+    if not plan:
+        return ""
+    rows = ""
+    for v in plan.get("ventures", []):
+        first30 = "<br>".join(
+            f"• {html.escape(str(s))}" for s in v.get("first_30_days", [])
+        )
+        kpis = ", ".join(html.escape(str(k)) for k in v.get("kpis", []))
+        rows += (
+            "<tr>"
+            f"<td>{html.escape(str(v.get('idea_id','')))}</td>"
+            f"<td>{html.escape(str(v.get('title','')))}</td>"
+            f"<td>{_readiness_tag(str(v.get('readiness','')))}</td>"
+            f"<td>{first30}</td>"
+            f"<td>{html.escape(str(v.get('owner','')))}</td>"
+            f"<td>{kpis}</td>"
+            f"<td>{html.escape(str(v.get('key_risk','')))}</td>"
+            "</tr>"
+        )
+    ventures_table = (
+        "<table><tr><th>Idea</th><th>Title</th><th>Readiness</th>"
+        "<th>First 30 days</th><th>Owner</th><th>KPIs</th><th>Key risk</th></tr>"
+        + rows
+        + "</table>"
+        if rows
+        else "<p><em>No ventures planned.</em></p>"
+    )
+    needs = plan.get("needs_human", [])
+    needs_html = (
+        "<ul>" + "".join(f"<li>{html.escape(str(x))}</li>" for x in needs) + "</ul>"
+        if needs
+        else "<p><em>None.</em></p>"
+    )
+    return f"""<h2>Execution plan (COO)</h2>
+<p>{html.escape(str(plan.get('summary','—')))}</p>
+<p><strong>Recommended focus:</strong> {html.escape(str(plan.get('recommended_focus','—')))}</p>
+{ventures_table}
+<p><strong>Resource plan:</strong> {html.escape(str(plan.get('resource_plan','—')))}</p>
+<h3>Needs human (owner veto/approval)</h3>
+{needs_html}"""
+
+
 def render_html(state: dict[str, Any]) -> str:
     run_id = state.get("run_id", "")
     topic = state.get("topic", "")
     cost = state.get("cost", {}) or {}
     decision = state.get("decision", {}) or {}
     report_md = state.get("report_md", "")
+    execution_plan = state.get("execution_plan", {}) or {}
 
     rows = ""
     for d in decision.get("decisions", []):
@@ -71,6 +123,7 @@ def render_html(state: dict[str, Any]) -> str:
 {decisions_table}
 <h2>Needs human (owner veto/approval)</h2>
 {needs_human_html}
+{_execution_plan_html(execution_plan)}
 <h2>Full report</h2>
 <pre class="md">{html.escape(report_md)}</pre>
 </body></html>"""

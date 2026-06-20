@@ -26,10 +26,18 @@ WORKER_MODEL = os.getenv("CONVEER_MODEL_WORKER", "claude-sonnet-4-6")
 
 # Map each role to a model. Keeping it explicit makes cost obvious.
 ROLE_MODELS: dict[str, str] = {
+    # department #1
     "ceo": LEAD_MODEL,
     "analyst": LEAD_MODEL,
     "idea_generator": WORKER_MODEL,
     "reporter": WORKER_MODEL,
+    # phase 1: venture studio
+    "market_researcher": LEAD_MODEL,
+    "product_manager": LEAD_MODEL,
+    "tech_lead": LEAD_MODEL,
+    "finance": LEAD_MODEL,
+    "coo": LEAD_MODEL,
+    "growth_marketer": WORKER_MODEL,
 }
 
 # --- runtime tuning ---

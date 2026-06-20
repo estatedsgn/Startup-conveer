@@ -213,6 +213,154 @@ def node_ceo(state: DeptState) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# Phase 1: Venture Studio — plan the green-lit ideas into execution
+# --------------------------------------------------------------------------- #
+def select_greenlit(state: DeptState) -> list[dict]:
+    """Ideas the CEO marked 'go', resolved back to their full idea dicts."""
+    decision = state.get("decision", {}) or {}
+    go_ids = {
+        str(d.get("idea_id"))
+        for d in decision.get("decisions", [])
+        if str(d.get("decision", "")).lower() == "go"
+    }
+    return [i for i in state.get("selected_ideas", []) if str(i.get("id")) in go_ids]
+
+
+def _methodology_for(state: DeptState, idea_id: Any) -> dict:
+    for m in state.get("methodologies", []):
+        if str(m.get("idea_id")) == str(idea_id):
+            return m
+    return {}
+
+
+def _plan_per_idea(
+    state: DeptState, role: str, objective: str
+) -> tuple[list[dict], dict[str, str], list[RunResult]]:
+    """Run one specialist `role` over every green-lit idea (analyst-style loop).
+
+    Each call gets the idea plus the discovery context we already have, so the
+    specialist plans against real signal, not just a title.
+    """
+    settings = config.load_settings()
+    out: list[dict] = []
+    sessions = dict(state.get("sessions", {}))
+    results: list[RunResult] = []
+    custdev = state.get("custdev_results", {}) or {}
+    for idea in state.get("greenlit_ideas", []):
+        ctx = {
+            "idea": idea,
+            "methodology": _methodology_for(state, idea.get("id")),
+            "custdev_results": custdev.get(str(idea.get("id")), ""),
+        }
+        prompt = objective + "\n" + json.dumps(ctx, ensure_ascii=False)
+        res = invoke_role(role, prompt, settings=settings)
+        obj = extract_json(res.text, "object")
+        obj.setdefault("idea_id", idea.get("id"))
+        out.append(obj)
+        results.append(res)
+        if res.session_id:
+            sessions[role] = res.session_id
+    return out, sessions, results
+
+
+def node_greenlight(state: DeptState) -> dict[str, Any]:
+    greenlit = select_greenlit(state)
+    return {
+        "greenlit_ideas": greenlit,
+        "log": _append_log(state, f"greenlight -> {len(greenlit)} idea(s) to plan"),
+    }
+
+
+def route_after_greenlight(state: DeptState) -> str:
+    """Only spin up the venture studio if the CEO actually green-lit something."""
+    return "market_researcher" if state.get("greenlit_ideas") else END
+
+
+def node_market_researcher(state: DeptState) -> dict[str, Any]:
+    out, sessions, results = _plan_per_idea(
+        state, "market_researcher", "Analyze the market for this green-lit idea:"
+    )
+    return {
+        "market_research": out,
+        "sessions": sessions,
+        "cost": _accumulate_cost(state, *results),
+        "log": _append_log(state, f"market_researcher -> {len(out)} analyses"),
+    }
+
+
+def node_product_manager(state: DeptState) -> dict[str, Any]:
+    out, sessions, results = _plan_per_idea(
+        state, "product_manager", "Define the MVP for this green-lit idea:"
+    )
+    return {
+        "product_plans": out,
+        "sessions": sessions,
+        "cost": _accumulate_cost(state, *results),
+        "log": _append_log(state, f"product_manager -> {len(out)} MVP plans"),
+    }
+
+
+def node_tech_lead(state: DeptState) -> dict[str, Any]:
+    out, sessions, results = _plan_per_idea(
+        state, "tech_lead", "Assess technical feasibility for this green-lit idea:"
+    )
+    return {
+        "tech_assessments": out,
+        "sessions": sessions,
+        "cost": _accumulate_cost(state, *results),
+        "log": _append_log(state, f"tech_lead -> {len(out)} assessments"),
+    }
+
+
+def node_growth_marketer(state: DeptState) -> dict[str, Any]:
+    out, sessions, results = _plan_per_idea(
+        state, "growth_marketer", "Design the go-to-market for this green-lit idea:"
+    )
+    return {
+        "gtm_plans": out,
+        "sessions": sessions,
+        "cost": _accumulate_cost(state, *results),
+        "log": _append_log(state, f"growth_marketer -> {len(out)} GTM plans"),
+    }
+
+
+def node_finance(state: DeptState) -> dict[str, Any]:
+    out, sessions, results = _plan_per_idea(
+        state, "finance", "Model the economics for this green-lit idea:"
+    )
+    return {
+        "finance_models": out,
+        "sessions": sessions,
+        "cost": _accumulate_cost(state, *results),
+        "log": _append_log(state, f"finance -> {len(out)} models"),
+    }
+
+
+def node_coo(state: DeptState) -> dict[str, Any]:
+    ctx = {
+        "topic": state.get("topic"),
+        "greenlit_ideas": state.get("greenlit_ideas", []),
+        "market_research": state.get("market_research", []),
+        "product_plans": state.get("product_plans", []),
+        "tech_assessments": state.get("tech_assessments", []),
+        "gtm_plans": state.get("gtm_plans", []),
+        "finance_models": state.get("finance_models", []),
+        "ceo_decision": state.get("decision", {}),
+    }
+    prompt = "Fuse these specialist plans into ONE execution plan:\n" + json.dumps(
+        ctx, ensure_ascii=False, indent=2
+    )
+    res = invoke_role("coo", prompt)
+    plan = extract_json(res.text, "object")
+    return {
+        "execution_plan": plan,
+        "sessions": _merge_sessions(state, "coo", res),
+        "cost": _accumulate_cost(state, res),
+        "log": _append_log(state, "coo -> execution plan"),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Graph assembly
 # --------------------------------------------------------------------------- #
 def build_graph(checkpointer: Any = None):
@@ -223,12 +371,21 @@ def build_graph(checkpointer: Any = None):
         checkpointer = MemorySaver()
 
     g = StateGraph(DeptState)
+    # department #1: idea generation + initial testing
     g.add_node("idea_generator", node_idea_generator)
     g.add_node("select", node_select)
     g.add_node("analyst", node_analyst)
     g.add_node("enter_results", node_enter_results)
     g.add_node("reporter", node_reporter)
     g.add_node("ceo", node_ceo)
+    # phase 1: venture studio (runs only for green-lit ideas)
+    g.add_node("greenlight", node_greenlight)
+    g.add_node("market_researcher", node_market_researcher)
+    g.add_node("product_manager", node_product_manager)
+    g.add_node("tech_lead", node_tech_lead)
+    g.add_node("growth_marketer", node_growth_marketer)
+    g.add_node("finance", node_finance)
+    g.add_node("coo", node_coo)
 
     g.add_edge(START, "idea_generator")
     g.add_edge("idea_generator", "select")
@@ -236,6 +393,18 @@ def build_graph(checkpointer: Any = None):
     g.add_edge("analyst", "enter_results")
     g.add_edge("enter_results", "reporter")
     g.add_edge("reporter", "ceo")
-    g.add_edge("ceo", END)
+    g.add_edge("ceo", "greenlight")
+    # gate: plan the venture only if the CEO green-lit at least one idea
+    g.add_conditional_edges(
+        "greenlight",
+        route_after_greenlight,
+        {"market_researcher": "market_researcher", END: END},
+    )
+    g.add_edge("market_researcher", "product_manager")
+    g.add_edge("product_manager", "tech_lead")
+    g.add_edge("tech_lead", "growth_marketer")
+    g.add_edge("growth_marketer", "finance")
+    g.add_edge("finance", "coo")
+    g.add_edge("coo", END)
 
     return g.compile(checkpointer=checkpointer)

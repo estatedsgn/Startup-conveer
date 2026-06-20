@@ -23,6 +23,15 @@ class DeptState(TypedDict, total=False):
     report_md: str                        # reporter output
     decision: dict[str, Any]              # CEO go/no-go per idea + summary
 
+    # --- phase 1: venture studio (only runs for green-lit ideas) ---
+    greenlit_ideas: list[dict[str, Any]]  # ideas the CEO marked "go"
+    market_research: list[dict[str, Any]]  # market_researcher output per idea
+    product_plans: list[dict[str, Any]]    # product_manager output per idea
+    tech_assessments: list[dict[str, Any]]  # tech_lead output per idea
+    gtm_plans: list[dict[str, Any]]         # growth_marketer output per idea
+    finance_models: list[dict[str, Any]]    # finance output per idea
+    execution_plan: dict[str, Any]          # COO consolidated plan
+
     sessions: dict[str, str]              # role -> claude session_id (continuity)
     cost: dict[str, float]                # {"tokens": .., "usd": ..} accumulator
     log: list[str]                        # human-readable trace of steps

@@ -26,12 +26,26 @@ class RoleSpec:
 
 
 REGISTRY: dict[str, RoleSpec] = {
+    # --- department #1: idea generation + initial testing ---
     "idea_generator": RoleSpec(
         "idea_generator", "Idea Generator", "worker", allowed_tools=[]
     ),
     "analyst": RoleSpec("analyst", "Research Analyst", "lead", allowed_tools=[]),
     "reporter": RoleSpec("reporter", "Reporter", "worker", allowed_tools=[]),
     "ceo": RoleSpec("ceo", "CEO", "lead", allowed_tools=[]),
+    # --- phase 1: venture studio (planning a green-lit idea into execution) ---
+    "market_researcher": RoleSpec(
+        "market_researcher", "Market Researcher", "lead", allowed_tools=[]
+    ),
+    "product_manager": RoleSpec(
+        "product_manager", "Product Manager", "lead", allowed_tools=[]
+    ),
+    "tech_lead": RoleSpec("tech_lead", "Tech Lead", "lead", allowed_tools=[]),
+    "growth_marketer": RoleSpec(
+        "growth_marketer", "Growth Marketer", "worker", allowed_tools=[]
+    ),
+    "finance": RoleSpec("finance", "Finance Lead (CFO)", "lead", allowed_tools=[]),
+    "coo": RoleSpec("coo", "COO", "lead", allowed_tools=[]),
 }
 
 
