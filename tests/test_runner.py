@@ -125,3 +125,40 @@ def test_api_requires_key(monkeypatch):
     s = config.Settings(provider="api", api_key="")
     with pytest.raises(SubordinateError):
         runner.run_agent("system", "hi", model="claude-opus-4-8", settings=s)
+
+
+def test_run_agent_via_openai_qwen(monkeypatch):
+    import types
+
+    import openai
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            assert kwargs["model"] == "qwen/qwen-2.5-72b-instruct"
+            msg = types.SimpleNamespace(content='{"deliverable": {}, "status": "completed"}')
+            usage = types.SimpleNamespace(prompt_tokens=5, completion_tokens=7)
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)], usage=usage)
+
+    class FakeClient:
+        def __init__(self, api_key=None, base_url=None):
+            self.chat = types.SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr(openai, "OpenAI", FakeClient)
+    auth = config.AgentAuth(
+        provider="openai", api_key="k", base_url="https://openrouter.ai/api/v1",
+        model="qwen/qwen-2.5-72b-instruct",
+    )
+    res = runner.run_agent("sys", "hi", settings=config.Settings(), auth=auth)
+    assert res.text.startswith('{"deliverable"')
+    assert res.input_tokens == 5 and res.output_tokens == 7
+
+
+def test_resolve_auth_openai_qwen(monkeypatch):
+    monkeypatch.setenv("CONVEER_PROVIDER_WORKER", "openai")
+    monkeypatch.setenv("CONVEER_KEY_WORKER", "or-key")
+    monkeypatch.setenv("CONVEER_BASEURL_WORKER", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("CONVEER_MODEL_WORKER", "qwen/qwen-2.5-72b-instruct")
+    auth = config.resolve_auth("worker", config.Settings())
+    assert auth.provider == "openai"
+    assert auth.model == "qwen/qwen-2.5-72b-instruct"
+    assert auth.base_url.endswith("/v1")

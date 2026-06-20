@@ -50,9 +50,10 @@ def invoke_agent(role: str, system_prompt: str, prompt: str, *, settings: config
     worker into long, unbounded tool use.
     """
     auth = config.resolve_auth(role, settings)
+    # Per-role model override (e.g. worker on Qwen) wins over the Claude default.
+    model = auth.model or registry.get_role(role).model(settings)
     return runner.run_agent(
-        system_prompt, prompt,
-        model=registry.get_role(role).model(settings),
+        system_prompt, prompt, model=model,
         label=role, settings=settings, auth=auth, allowed_tools=[],
     )
 

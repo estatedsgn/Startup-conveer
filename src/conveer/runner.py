@@ -123,6 +123,10 @@ def run_agent(
         return _run_via_api(
             system_prompt, prompt, model=model, label=label, settings=settings, auth=auth
         )
+    if provider == "openai":
+        return _run_via_openai(
+            system_prompt, prompt, model=model, label=label, settings=settings, auth=auth
+        )
     return _run_via_cli(
         system_prompt, prompt, model=model, label=label,
         session_id=session_id, settings=settings, allowed_tools=allowed_tools, auth=auth,
@@ -219,6 +223,51 @@ def _run_via_api(
         text=text, session_id=None, cost_usd=cost,
         input_tokens=in_tok, output_tokens=out_tok,
         raw={"model": model, "stop_reason": resp.stop_reason},
+    )
+
+
+def _run_via_openai(
+    system_prompt: str,
+    prompt: str,
+    *,
+    model: str | None,
+    label: str,
+    settings: config.Settings,
+    auth: "config.AgentAuth | None" = None,
+) -> RunResult:
+    """OpenAI-compatible backend — lets a role run on Qwen (OpenRouter/DashScope/
+    Ollama) or any OpenAI-compatible endpoint."""
+    try:
+        from openai import OpenAI
+    except ImportError as exc:  # pragma: no cover
+        raise SubordinateError("openai SDK not installed (pip install openai).") from exc
+
+    api_key = (auth.api_key if auth else "") or "EMPTY"  # local servers accept any
+    base_url = auth.base_url if auth else None
+    model = (auth.model if auth else None) or model
+    if not model:
+        raise SubordinateError(f"Agent '{label}': no model set for provider=openai.")
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            max_tokens=settings.api_max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+    except Exception as exc:
+        raise SubordinateError(f"Agent '{label}' (openai/{model}) call failed: {exc}") from exc
+
+    text = resp.choices[0].message.content or ""
+    usage = getattr(resp, "usage", None)
+    in_tok = int(getattr(usage, "prompt_tokens", 0) or 0)
+    out_tok = int(getattr(usage, "completion_tokens", 0) or 0)
+    return RunResult(
+        text=text, session_id=None, cost_usd=0.0,  # free/unknown pricing
+        input_tokens=in_tok, output_tokens=out_tok, raw={"model": model},
     )
 
 

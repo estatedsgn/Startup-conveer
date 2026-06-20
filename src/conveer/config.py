@@ -108,24 +108,33 @@ def load_settings() -> Settings:
 
 @dataclass
 class AgentAuth:
-    """Which Claude a given role talks to (its own subscription/key)."""
+    """Which model/Claude a given role talks to (its own subscription/key)."""
 
-    provider: str            # "cli" | "api"
-    api_key: str = ""        # for provider=api
+    provider: str            # "cli" | "api" | "openai"
+    api_key: str = ""        # for provider in {api, openai}
     cli_config_dir: str | None = None  # for provider=cli (separate logged-in account)
+    base_url: str | None = None        # for provider=openai (Qwen via OpenRouter/DashScope/Ollama)
+    model: str | None = None           # per-role model override (required for openai)
 
 
 def resolve_auth(role: str, settings: Settings | None = None) -> AgentAuth:
-    """Resolve per-role credentials so each agent can be a distinct Claude.
+    """Resolve per-role credentials so each agent can be a distinct model.
 
     Env overrides (role upper-cased), falling back to the global config:
-      CONVEER_PROVIDER_<ROLE>   cli|api for this role
-      CONVEER_KEY_<ROLE>        Anthropic API key for this role
+      CONVEER_PROVIDER_<ROLE>   cli|api|openai for this role
+      CONVEER_KEY_<ROLE>        API key for this role
       CONVEER_CLAUDE_DIR_<ROLE> CLAUDE_CONFIG_DIR for this role (separate CLI login)
+      CONVEER_BASEURL_<ROLE>    OpenAI-compatible base URL (e.g. OpenRouter) for Qwen
+      CONVEER_MODEL_<ROLE>      model id for this role (e.g. qwen/qwen-2.5-72b-instruct)
     """
     settings = settings or load_settings()
     r = role.upper()
     provider = os.getenv(f"CONVEER_PROVIDER_{r}", settings.provider)
-    api_key = os.getenv(f"CONVEER_KEY_{r}", "") or (settings.api_key if provider == "api" else "")
+    api_key = os.getenv(f"CONVEER_KEY_{r}", "")
+    if not api_key and provider in {"api", "openai"}:
+        api_key = settings.api_key if provider == "api" else os.getenv("OPENAI_API_KEY", "")
     cli_dir = os.getenv(f"CONVEER_CLAUDE_DIR_{r}")
-    return AgentAuth(provider=provider, api_key=api_key, cli_config_dir=cli_dir)
+    base_url = os.getenv(f"CONVEER_BASEURL_{r}") or os.getenv("OPENAI_BASE_URL")
+    model = os.getenv(f"CONVEER_MODEL_{r}")
+    return AgentAuth(provider=provider, api_key=api_key, cli_config_dir=cli_dir,
+                     base_url=base_url, model=model)
