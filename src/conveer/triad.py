@@ -43,12 +43,17 @@ Return ONLY a JSON object (no prose, no fences):
 
 @traceable(name="triad_agent")
 def invoke_agent(role: str, system_prompt: str, prompt: str, *, settings: config.Settings):
-    """Run one triad role on ITS OWN Claude (per-role auth)."""
+    """Run one triad role on ITS OWN Claude (per-role auth).
+
+    Tools are disabled (allowed_tools=[]): triad agents reason from the model +
+    memory and return structured JSON, so leaving default tools on can send a
+    worker into long, unbounded tool use.
+    """
     auth = config.resolve_auth(role, settings)
     return runner.run_agent(
         system_prompt, prompt,
         model=registry.get_role(role).model(settings),
-        label=role, settings=settings, auth=auth,
+        label=role, settings=settings, auth=auth, allowed_tools=[],
     )
 
 
