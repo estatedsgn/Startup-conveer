@@ -20,6 +20,8 @@ runs/
 .conveer/
 # evolving (AI-rewritten) prompts — local learning state; baselines live in src/conveer/roles
 prompts/
+# the shared agent workspace (A2A bus, tasks, artifacts, memory) — local state
+workspace/
 
 # tooling
 .pytest_cache/

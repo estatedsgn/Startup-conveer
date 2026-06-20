@@ -20,6 +20,11 @@ RUNS_DIR = PROJECT_ROOT / "runs"
 CHECKPOINT_DB = PROJECT_ROOT / ".conveer" / "checkpoints.sqlite"
 # Evolving (versioned) prompts live here; baseline seeds come from ROLES_DIR.
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
+# The ONE shared folder where all agents live and communicate (A2A bus + memory).
+# Override with CONVEER_WORKSPACE to point at any folder on your computer.
+WORKSPACE_DIR = Path(os.getenv("CONVEER_WORKSPACE", str(PROJECT_ROOT / "workspace")))
+# Team / org chart manifest (who delegates to whom).
+TEAMS_FILE = Path(os.getenv("CONVEER_TEAMS", str(PROJECT_ROOT / "teams.yaml")))
 
 # --- model tiers ---
 # Lead tier = reasoning-heavy roles (CEO, Analyst, control plane). Worker tier = cheaper.
@@ -64,8 +69,11 @@ class Settings:
     runs_dir: Path = RUNS_DIR
     checkpoint_db: Path = CHECKPOINT_DB
     prompts_dir: Path = PROMPTS_DIR
+    workspace_dir: Path = WORKSPACE_DIR
+    teams_file: Path = TEAMS_FILE
     improve_bar: float = IMPROVE_BAR
     improve_max_rounds: int = IMPROVE_MAX_ROUNDS
+    max_delegation_depth: int = int(os.getenv("CONVEER_MAX_DEPTH", "3"))
 
     def model_for(self, role: str) -> str:
         return self.role_models.get(role, self.worker_model)

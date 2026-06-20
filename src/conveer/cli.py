@@ -289,5 +289,59 @@ def prompt_history(role: str = typer.Argument(..., help="Role to inspect")) -> N
     console.print(table)
 
 
+@app.command(name="org")
+def org_cmd() -> None:
+    """Show the agent org chart (who delegates to whom)."""
+    from . import org as orgmod
+    from .registry import REGISTRY
+
+    teams = orgmod.load_teams()
+    if not teams:
+        console.print("[yellow]No teams.yaml found.[/yellow]")
+        return
+    console.print("[bold]Org chart[/bold]")
+    console.print(orgmod.render_tree(orgmod.tree(teams, "chief")))
+    table = Table(show_header=True, header_style="bold", title="Agents in the org")
+    table.add_column("role")
+    table.add_column("kind")
+    table.add_column("delegates_to")
+    for role in sorted(orgmod.subtree_roles(teams, "chief")):
+        spec = REGISTRY.get(role)
+        table.add_row(role, spec.kind if spec else "?", ", ".join(orgmod.delegates_of(role, teams)) or "—")
+    console.print(table)
+
+
+@app.command(name="run-goal")
+def run_goal_cmd(
+    goal: str = typer.Argument(..., help="The goal to delegate through the agent tree"),
+    root: str = typer.Option("chief", "--root", help="Top orchestrator to start from"),
+    verify: bool = typer.Option(False, "--verify", help="Have the Critic verify worker outputs"),
+) -> None:
+    """Delegate a goal: chief -> leads -> workers, communicating via A2A."""
+    from . import config as cfg
+    from .orchestrate import run_goal
+
+    console.print(f"[bold]Goal[/bold] -> {root}: {goal!r}")
+    try:
+        result = run_goal(goal, root=root, verify=verify)
+    except SubordinateError as exc:
+        console.print(f"[bold red]Agent failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    final = result.get("final", {})
+    console.print("\n[bold green]Synthesis:[/bold green]")
+    console.print(final.get("summary", "—"))
+    for f in final.get("key_findings", []):
+        console.print(f"  • {f}")
+    if final.get("recommendation"):
+        console.print(f"[bold]Recommendation:[/bold] {final['recommendation']}")
+    cost = result.get("cost", {})
+    console.print(
+        f"[dim]cost: {cost.get('tokens',0)} tokens / ${cost.get('usd',0)} · "
+        f"context {result.get('context_id')}[/dim]"
+    )
+    console.print(f"[bold]Workspace (agents live here):[/bold] {cfg.WORKSPACE_DIR}")
+
+
 if __name__ == "__main__":
     app()

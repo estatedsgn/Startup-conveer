@@ -1,0 +1,13 @@
+# Org chart — who delegates to whom. Edit this to reshape the company.
+# Behaviour, rules and context are set in each agent's SYSTEM PROMPT
+# (src/conveer/roles/*.md, evolvable via the prompt store); this file only
+# wires the delegation graph.
+
+chief:
+  delegates_to: [research_lead, gtm_lead]
+
+research_lead:
+  delegates_to: [market_researcher, competitor_analyst, analyst]
+
+gtm_lead:
+  delegates_to: [outreach_planner, copywriter]

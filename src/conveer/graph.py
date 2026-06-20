@@ -11,13 +11,13 @@ it can be resumed (`conveer resume <run_id>`).
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from . import config
+from .jsonutil import extract_json, strip_fences  # re-exported for callers
 from .observability import traceable
 from .runner import RunResult, run_subordinate
 from .state import DeptState
@@ -40,26 +40,6 @@ def invoke_role(
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
-    return fence.group(1).strip() if fence else text
-
-
-def extract_json(text: str, kind: str) -> Any:
-    """Extract a JSON array ('[') or object ('{') from model text, tolerantly."""
-    open_ch, close_ch = ("[", "]") if kind == "array" else ("{", "}")
-    cleaned = _strip_fences(text)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        start = cleaned.find(open_ch)
-        end = cleaned.rfind(close_ch)
-        if start != -1 and end != -1 and end > start:
-            return json.loads(cleaned[start : end + 1])
-        raise
-
-
 def _accumulate_cost(state: DeptState, *results: RunResult) -> dict[str, float]:
     cur = state.get("cost", {}) or {}
     tokens = int(cur.get("tokens", 0))

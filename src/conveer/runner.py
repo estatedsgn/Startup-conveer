@@ -100,6 +100,55 @@ def parse_output(stdout: str) -> RunResult:
     )
 
 
+def run_agent(
+    system_prompt: str,
+    prompt: str,
+    *,
+    model: str | None = None,
+    label: str = "agent",
+    session_id: str | None = None,
+    settings: config.Settings | None = None,
+    allowed_tools: list[str] | None = None,
+) -> RunResult:
+    """Run a Claude agent with an explicit (pre-composed) system prompt.
+
+    Lower-level than `run_subordinate`: the caller supplies the full system
+    prompt (e.g. role + team + memory + A2A contract). `label` is only used for
+    error messages.
+    """
+    settings = settings or config.load_settings()
+    claude_bin = shutil.which("claude") or "claude"
+    cmd = build_command(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        model=model,
+        session_id=session_id,
+        allowed_tools=allowed_tools,
+        claude_bin=claude_bin,
+    )
+
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=settings.subordinate_timeout
+        )
+    except FileNotFoundError as exc:
+        raise SubordinateError(
+            "`claude` CLI not found. Install it and log in (see README)."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SubordinateError(
+            f"Agent '{label}' timed out after {settings.subordinate_timeout}s"
+        ) from exc
+
+    if proc.returncode != 0:
+        raise SubordinateError(
+            f"Agent '{label}' exited with code {proc.returncode}: "
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
+
+    return parse_output(proc.stdout)
+
+
 def run_subordinate(
     role: str,
     prompt: str,
@@ -113,37 +162,13 @@ def run_subordinate(
     `role` selects both the system prompt (roles/<role>.md) and the model tier.
     """
     settings = settings or config.load_settings()
-    claude_bin = shutil.which("claude") or "claude"
     system_prompt = load_role_prompt(role, settings)
-    cmd = build_command(
-        prompt=prompt,
-        system_prompt=system_prompt,
+    return run_agent(
+        system_prompt,
+        prompt,
         model=settings.model_for(role),
+        label=role,
         session_id=session_id,
+        settings=settings,
         allowed_tools=allowed_tools,
-        claude_bin=claude_bin,
     )
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=settings.subordinate_timeout,
-        )
-    except FileNotFoundError as exc:
-        raise SubordinateError(
-            "`claude` CLI not found. Install it and log in (see README)."
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise SubordinateError(
-            f"Subordinate '{role}' timed out after {settings.subordinate_timeout}s"
-        ) from exc
-
-    if proc.returncode != 0:
-        raise SubordinateError(
-            f"Subordinate '{role}' exited with code {proc.returncode}: "
-            f"{proc.stderr.strip() or proc.stdout.strip()}"
-        )
-
-    return parse_output(proc.stdout)
