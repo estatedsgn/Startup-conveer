@@ -22,6 +22,8 @@ runs/
 prompts/
 # the shared agent workspace (A2A bus, tasks, artifacts, memory) — local state
 workspace/
+# exported system prompts (generated on demand)
+exported_prompts/
 
 # tooling
 .pytest_cache/

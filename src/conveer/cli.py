@@ -343,5 +343,32 @@ def run_goal_cmd(
     console.print(f"[bold]Workspace (agents live here):[/bold] {cfg.WORKSPACE_DIR}")
 
 
+@app.command(name="prompts-dump")
+def prompts_dump(
+    out: str = typer.Option("exported_prompts", "--out", help="Output directory"),
+) -> None:
+    """Export every agent's full composed system prompt (role + team + A2A)."""
+    from pathlib import Path
+
+    from . import org as orgmod
+    from . import prompt_builder, prompt_store
+    from .registry import REGISTRY, is_orchestrator
+
+    teams = orgmod.load_teams()
+    in_org = orgmod.subtree_roles(teams, "chief") if teams else set()
+    out_dir = Path(out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for role in REGISTRY:
+        if role in in_org:
+            phase = "delegate" if is_orchestrator(role) else "worker"
+            text = prompt_builder.build(role, teams=teams, phase=phase)
+        else:
+            text = prompt_store.current_prompt(role).text
+        (out_dir / f"{role}.md").write_text(text, encoding="utf-8")
+
+    console.print(f"[green]Exported {len(REGISTRY)} system prompts to[/green] {out_dir}/")
+
+
 if __name__ == "__main__":
     app()

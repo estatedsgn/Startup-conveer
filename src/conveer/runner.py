@@ -112,11 +112,29 @@ def run_agent(
 ) -> RunResult:
     """Run a Claude agent with an explicit (pre-composed) system prompt.
 
-    Lower-level than `run_subordinate`: the caller supplies the full system
-    prompt (e.g. role + team + memory + A2A contract). `label` is only used for
-    error messages.
+    Dispatches to the configured provider: "cli" (headless `claude`, your
+    subscription) or "api" (Anthropic API, for parallel automation). `label` is
+    only used in error messages.
     """
     settings = settings or config.load_settings()
+    if settings.provider == "api":
+        return _run_via_api(system_prompt, prompt, model=model, label=label, settings=settings)
+    return _run_via_cli(
+        system_prompt, prompt, model=model, label=label,
+        session_id=session_id, settings=settings, allowed_tools=allowed_tools,
+    )
+
+
+def _run_via_cli(
+    system_prompt: str,
+    prompt: str,
+    *,
+    model: str | None,
+    label: str,
+    session_id: str | None,
+    settings: config.Settings,
+    allowed_tools: list[str] | None,
+) -> RunResult:
     claude_bin = shutil.which("claude") or "claude"
     cmd = build_command(
         prompt=prompt,
@@ -147,6 +165,47 @@ def run_agent(
         )
 
     return parse_output(proc.stdout)
+
+
+def _run_via_api(
+    system_prompt: str,
+    prompt: str,
+    *,
+    model: str | None,
+    label: str,
+    settings: config.Settings,
+) -> RunResult:
+    try:
+        import anthropic
+    except ImportError as exc:  # pragma: no cover
+        raise SubordinateError("anthropic SDK not installed (pip install anthropic).") from exc
+
+    if not settings.api_key:
+        raise SubordinateError("ANTHROPIC_API_KEY not set (required for provider=api).")
+
+    model = model or settings.worker_model
+    client = anthropic.Anthropic(api_key=settings.api_key)
+    try:
+        resp = client.messages.create(
+            model=model,
+            max_tokens=settings.api_max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:  # surface API errors uniformly
+        raise SubordinateError(f"Agent '{label}' API call failed: {exc}") from exc
+
+    text = "".join(getattr(b, "text", "") for b in resp.content)
+    usage = resp.usage
+    in_tok = int(getattr(usage, "input_tokens", 0) or 0)
+    out_tok = int(getattr(usage, "output_tokens", 0) or 0)
+    pin, pout = config.PRICE_PER_MTOK.get(model, (0.0, 0.0))
+    cost = round(in_tok / 1_000_000 * pin + out_tok / 1_000_000 * pout, 6)
+    return RunResult(
+        text=text, session_id=None, cost_usd=cost,
+        input_tokens=in_tok, output_tokens=out_tok,
+        raw={"model": model, "stop_reason": resp.stop_reason},
+    )
 
 
 def run_subordinate(

@@ -51,9 +51,23 @@ ROLE_MODELS: dict[str, str] = {
 # --- runtime tuning ---
 SUBORDINATE_TIMEOUT = int(os.getenv("CONVEER_SUBORDINATE_TIMEOUT", "300"))
 RECURSION_LIMIT = int(os.getenv("CONVEER_RECURSION_LIMIT", "25"))
+# Runtime backend for agents: "cli" (headless claude, your subscription) or
+# "api" (Anthropic API, built for parallel automation).
+PROVIDER = os.getenv("CONVEER_PROVIDER", "cli")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+API_MAX_TOKENS = int(os.getenv("CONVEER_API_MAX_TOKENS", "4096"))
+# Approx USD per 1M tokens (input, output) for cost accounting in API mode.
+PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-opus-4-8": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5-20251001": (1.0, 5.0),
+}
 # Self-improvement loop defaults.
 IMPROVE_BAR = float(os.getenv("CONVEER_IMPROVE_BAR", "0.8"))
 IMPROVE_MAX_ROUNDS = int(os.getenv("CONVEER_IMPROVE_MAX_ROUNDS", "3"))
+# Factory validation loop (validator -> targeted fix -> re-validate).
+FACTORY_BAR = float(os.getenv("CONVEER_FACTORY_BAR", "0.75"))
+FACTORY_MAX_FIX = int(os.getenv("CONVEER_FACTORY_MAX_FIX", "2"))
 
 
 @dataclass
@@ -74,6 +88,11 @@ class Settings:
     improve_bar: float = IMPROVE_BAR
     improve_max_rounds: int = IMPROVE_MAX_ROUNDS
     max_delegation_depth: int = int(os.getenv("CONVEER_MAX_DEPTH", "3"))
+    provider: str = PROVIDER
+    api_key: str = ANTHROPIC_API_KEY
+    api_max_tokens: int = API_MAX_TOKENS
+    factory_bar: float = FACTORY_BAR
+    factory_max_fix: int = FACTORY_MAX_FIX
 
     def model_for(self, role: str) -> str:
         return self.role_models.get(role, self.worker_model)

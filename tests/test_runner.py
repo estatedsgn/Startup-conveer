@@ -96,3 +96,32 @@ def test_run_subordinate_timeout(monkeypatch):
     monkeypatch.setattr(runner.subprocess, "run", boom)
     with pytest.raises(SubordinateError):
         run_subordinate("ceo", "x")
+
+
+def test_run_agent_via_api(monkeypatch):
+    import types
+
+    import anthropic
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            block = types.SimpleNamespace(text='{"ok": 1}')
+            usage = types.SimpleNamespace(input_tokens=10, output_tokens=20)
+            return types.SimpleNamespace(content=[block], usage=usage, stop_reason="end_turn")
+
+    class FakeClient:
+        def __init__(self, api_key=None):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    s = config.Settings(provider="api", api_key="test-key")
+    res = runner.run_agent("system", "hi", model="claude-opus-4-8", settings=s)
+    assert res.text == '{"ok": 1}'
+    assert res.input_tokens == 10 and res.output_tokens == 20
+    assert res.cost_usd > 0  # priced from PRICE_PER_MTOK
+
+
+def test_api_requires_key(monkeypatch):
+    s = config.Settings(provider="api", api_key="")
+    with pytest.raises(SubordinateError):
+        runner.run_agent("system", "hi", model="claude-opus-4-8", settings=s)

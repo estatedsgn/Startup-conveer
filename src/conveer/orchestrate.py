@@ -65,37 +65,66 @@ def _safe_parse(text: str) -> dict[str, Any]:
         return {"status": "failed", "summary": "unparseable output", "raw": text[:2000]}
 
 
-def _verify(role: str, objective: str, output: dict, ctx: _Ctx) -> dict:
+def _validate(role: str, objective: str, output: dict, ctx: _Ctx) -> dict:
+    """Validator (Critic) judges a worker's output and surfaces issues to fix."""
     import json
 
     prompt = (
-        f"Target role: {role}\nTASK: {objective}\n\n"
-        f"OUTPUT:\n{json.dumps(output, ensure_ascii=False)}\n\nEvaluate per your instructions."
+        f"Target role: {role}\nBar to pass: {ctx.settings.factory_bar}\n"
+        f"TASK: {objective}\n\nOUTPUT:\n{json.dumps(output, ensure_ascii=False)}\n\n"
+        "Evaluate per your instructions."
     )
     try:
         res = runner.run_subordinate("critic", prompt, settings=ctx.settings)
         ctx.add(res)
         crit = _safe_parse(res.text)
-        return {"score": crit.get("score"), "passed": crit.get("passed")}
-    except Exception as exc:  # verification is best-effort
-        return {"score": None, "error": str(exc)}
+        score = float(crit.get("score", 0.0) or 0.0)
+        issues = [i.get("principle", "") for i in crit.get("fundamental_issues", [])]
+        return {
+            "score": score,
+            "passed": score >= ctx.settings.factory_bar,
+            "issues": [i for i in issues if i],
+            "summary": crit.get("summary", ""),
+        }
+    except Exception as exc:  # validation is best-effort
+        return {"score": None, "passed": True, "issues": [], "error": str(exc)}
 
 
-def _work(role: str, objective: str, ctx: _Ctx, manager: str) -> dict:
+def _run_worker_once(
+    role: str, objective: str, ctx: _Ctx, manager: str, feedback: list[str] | None
+) -> dict:
     spec = registry.get_role(role)
     mem_ctx = ctx.mem.context_for(role, query=objective)
+    extra = f"Task from {manager}: {objective}"
+    if feedback:
+        extra += "\n\n## Validator feedback to address (fix these fundamentally)\n" + \
+            "\n".join(f"- {f}" for f in feedback)
     sysp = prompt_builder.build(
         role, teams=ctx.teams, settings=ctx.settings, phase="worker",
-        memory_ctx=mem_ctx, extra_context=f"Task from {manager}: {objective}",
+        memory_ctx=mem_ctx, extra_context=extra,
     )
     res = invoke_agent(
         sysp, _work_prompt(objective), model=spec.model(ctx.settings),
         label=role, settings=ctx.settings,
     )
     ctx.add(res)
-    out = _safe_parse(res.text)
+    return _safe_parse(res.text)
+
+
+def _work(role: str, objective: str, ctx: _Ctx, manager: str) -> dict:
+    """Factory worker path: produce -> validate -> targeted fix -> re-validate."""
+    out = _run_worker_once(role, objective, ctx, manager, feedback=None)
+
     if ctx.verify:
-        out["_verification"] = _verify(role, objective, out, ctx)
+        attempts = 0
+        while True:
+            verdict = _validate(role, objective, out, ctx)
+            out["_validation"] = verdict
+            if verdict.get("passed") or attempts >= ctx.settings.factory_max_fix:
+                break
+            attempts += 1
+            out = _run_worker_once(role, objective, ctx, manager, feedback=verdict.get("issues"))
+
     ctx.mem.remember(
         f"{role} did '{objective[:80]}': {out.get('summary','')}",
         scope=role, source=role, tags=[role],
