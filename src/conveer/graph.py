@@ -239,3 +239,31 @@ def build_graph(checkpointer: Any = None):
     g.add_edge("ceo", END)
 
     return g.compile(checkpointer=checkpointer)
+
+
+# --------------------------------------------------------------------------- #
+# Bring-your-own-idea: validate a single owner-provided idea
+# --------------------------------------------------------------------------- #
+def validate_single_idea(
+    idea: dict[str, Any],
+    topic: str,
+    custdev_results: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Run analyst -> reporter -> CEO on one owner-provided idea (no generation).
+
+    Reuses the same nodes as the full graph, skipping the generation and the
+    human-selection gate. Pass `custdev_results` (idea_id -> text) once you have
+    interview data; omit it for a first pre-validation pass.
+    """
+    idea = dict(idea)
+    idea.setdefault("id", "idea-owner")
+    state: DeptState = {
+        "topic": topic,
+        "selected_ideas": [idea],
+        "custdev_results": custdev_results or {},
+        "log": [f"owner-provided idea: {idea.get('title')}"],
+    }
+    state.update(node_analyst(state))  # type: ignore[arg-type]
+    state.update(node_reporter(state))  # type: ignore[arg-type]
+    state.update(node_ceo(state))  # type: ignore[arg-type]
+    return state  # type: ignore[return-value]

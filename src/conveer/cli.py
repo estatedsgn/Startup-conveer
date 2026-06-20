@@ -151,6 +151,36 @@ def run(
 
 
 @app.command()
+def validate(
+    title: str = typer.Option(..., "--title", help="Idea title"),
+    hypothesis: str = typer.Option(..., "--hypothesis", "-H", help="Falsifiable hypothesis"),
+    audience: str = typer.Option("", "--audience", "-a", help="Target audience / ICP"),
+    rationale: str = typer.Option("", "--rationale", help="Why it could work"),
+    topic: str = typer.Option("", "--topic", "-t", help="Context topic (defaults to title)"),
+) -> None:
+    """Validate ONE owner-provided idea (skips generation & selection)."""
+    from .graph import validate_single_idea
+
+    run_id = storage.new_run_id()
+    idea = {
+        "id": "idea-owner",
+        "title": title,
+        "hypothesis": hypothesis,
+        "target_audience": audience,
+        "rationale": rationale,
+    }
+    console.print(f"[bold]Validating idea[/bold] {run_id}: {title!r}")
+    try:
+        state = validate_single_idea(idea, topic or title)
+    except SubordinateError as exc:
+        console.print(f"[bold red]Subordinate failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    state["run_id"] = run_id
+    html_path = _finalize(run_id, state)
+    _print_outcome(run_id, state, html_path)
+
+
+@app.command()
 def resume(run_id: str = typer.Argument(..., help="Run id to resume")) -> None:
     """Resume a paused run (e.g. after collecting custdev results)."""
     from langgraph.types import Command

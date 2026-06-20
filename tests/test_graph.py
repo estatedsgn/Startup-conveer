@@ -62,6 +62,16 @@ def test_graph_reaches_first_interrupt(monkeypatch):
     assert res["__interrupt__"][0].value["type"] == "select_ideas"
 
 
+def test_validate_single_idea(monkeypatch):
+    monkeypatch.setattr(G, "invoke_role", _fake_invoke)
+    idea = {"id": "idea-owner", "title": "My idea", "hypothesis": "people pay"}
+    state = G.validate_single_idea(idea, topic="sales")
+    assert len(state["methodologies"]) == 1
+    assert state["report_md"].startswith("# Validation Report")
+    assert state["decision"]["summary"] == "two to iterate"
+    assert state["selected_ideas"][0]["title"] == "My idea"
+
+
 def test_graph_full_flow_completes(monkeypatch):
     monkeypatch.setattr(G, "invoke_role", _fake_invoke)
     graph = G.build_graph()
