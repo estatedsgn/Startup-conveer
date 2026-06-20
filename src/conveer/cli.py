@@ -15,9 +15,9 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from . import config, storage
-from .graph import build_graph
-from .runner import SubordinateError
+from . import config, registry, storage
+from .graph import build_graph, extract_json
+from .runner import SubordinateError, run_subordinate
 
 load_dotenv()
 app = typer.Typer(add_completion=False, help="Startup-Conveer — AI company conveyor.")
@@ -184,6 +184,64 @@ def resume(run_id: str = typer.Argument(..., help="Run id to resume")) -> None:
         return Command(resume=None)
 
     _run_with_saver(run_id, make_first)
+
+
+def _print_hustle(plan: dict[str, Any]) -> None:
+    console.print(f"\n[bold]Operator:[/bold] {plan.get('situation_readback','—')}")
+    for i, p in enumerate(plan.get("money_plays", []), 1):
+        console.print(f"\n[bold cyan]{i}. {p.get('name','play')}[/bold cyan] — "
+                      f"{p.get('what_it_is','')}")
+        console.print(f"   [dim]why you:[/dim] {p.get('why_you','')}")
+        for s in p.get("steps_today", []):
+            console.print(f"     • {s}")
+        console.print(
+            f"   [dim]first $:[/dim] {p.get('first_dollar_path','')} "
+            f"[dim]| eta[/dim] {p.get('time_to_first_revenue','?')} "
+            f"[dim]| wk1[/dim] {p.get('expected_week1_usd','?')} "
+            f"[dim]| cost[/dim] {p.get('startup_cost_usd','?')}"
+        )
+    do_now = plan.get("do_this_now", [])
+    if do_now:
+        console.print("\n[bold green]DO THIS NOW:[/bold green]")
+        for n, s in enumerate(do_now, 1):
+            console.print(f"  {n}. {s}")
+    if plan.get("reality_check"):
+        console.print(f"\n[bold yellow]Reality check:[/bold yellow] {plan['reality_check']}")
+    for x in plan.get("needs_human", []):
+        console.print(f"[dim]needs you:[/dim] {x}")
+
+
+@app.command()
+def hustle(
+    skills: str = typer.Option(..., "--skills", "-s", help="Your skills/assets"),
+    hours: float = typer.Option(2.0, "--hours", "-h", help="Hours/day you can put in"),
+    budget: float = typer.Option(0.0, "--budget", "-b", help="Starting budget (USD)"),
+    payout: str = typer.Option("", "--payout", help="How you can get paid (e.g. PayPal)"),
+    goal: str = typer.Option("first real revenue this week", "--goal", "-g",
+                             help="Your money goal"),
+) -> None:
+    """Ask the Operator what to do today to start earning. You do the doing."""
+    run_id = storage.new_run_id()
+    prompt = (
+        "Owner's real situation — build the money plan:\n"
+        f"- skills/assets: {skills}\n"
+        f"- time per day: {hours} hours\n"
+        f"- starting budget: ${budget}\n"
+        f"- payout method: {payout or 'unspecified'}\n"
+        f"- goal: {goal}\n"
+    )
+    spec = registry.get_role("operator")
+    console.print(f"[bold]Operator working[/bold] (run {run_id})…")
+    try:
+        res = run_subordinate("operator", prompt, allowed_tools=spec.allowed_tools)
+    except SubordinateError as exc:
+        console.print(f"[bold red]Operator failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    plan = extract_json(res.text, "object")
+    storage.save_json(run_id, "hustle_plan.json", plan)
+    _print_hustle(plan)
+    console.print(f"\n[dim]cost: {res.total_tokens} tokens / "
+                  f"${round(res.cost_usd, 4)} · saved to runs/{run_id}/[/dim]")
 
 
 if __name__ == "__main__":

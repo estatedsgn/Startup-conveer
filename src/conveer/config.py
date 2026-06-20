@@ -37,6 +37,7 @@ ROLE_MODELS: dict[str, str] = {
     "tech_lead": LEAD_MODEL,
     "finance": LEAD_MODEL,
     "coo": LEAD_MODEL,
+    "operator": LEAD_MODEL,
     "growth_marketer": WORKER_MODEL,
 }
 

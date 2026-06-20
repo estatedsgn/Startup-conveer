@@ -46,6 +46,11 @@ REGISTRY: dict[str, RoleSpec] = {
     ),
     "finance": RoleSpec("finance", "Finance Lead (CFO)", "lead", allowed_tools=[]),
     "coo": RoleSpec("coo", "COO", "lead", allowed_tools=[]),
+    # --- the owner's hands-on operator (tells the human exactly what to do) ---
+    # Gets web research so its money plays are grounded in the real market.
+    "operator": RoleSpec(
+        "operator", "Operator", "lead", allowed_tools=["WebSearch", "WebFetch"]
+    ),
 }
 
 
