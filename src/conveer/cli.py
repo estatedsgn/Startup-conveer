@@ -343,6 +343,43 @@ def run_goal_cmd(
     console.print(f"[bold]Workspace (agents live here):[/bold] {cfg.WORKSPACE_DIR}")
 
 
+@app.command(name="triad")
+def triad_cmd(
+    objective: str = typer.Argument(..., help="The objective the 3-Claude triad handles"),
+    contour: str = typer.Option("idea-validation", "--contour", help="Which contour"),
+    max_fix: int = typer.Option(config.FACTORY_MAX_FIX, "--max-fix", help="Max validator fix rounds"),
+) -> None:
+    """Run ONE contour through the 3-Claude triad (orchestrator/worker/validator)."""
+    from . import config as cfg
+    from .triad import run_triad
+
+    console.print(f"[bold]Triad[/bold] ({contour}): {objective!r}")
+    for role in ("orchestrator", "worker", "critic"):
+        auth = cfg.resolve_auth(role)
+        where = "API key" if auth.provider == "api" else (auth.cli_config_dir or "default CLI login")
+        console.print(f"  [dim]{role:13}-> {auth.provider} ({where})[/dim]")
+
+    try:
+        result = run_triad(objective, contour=contour, max_fix=max_fix)
+    except SubordinateError as exc:
+        console.print(f"[bold red]Agent failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    val = result["validation"]
+    final = result["final"]
+    console.print(
+        f"\n[bold]Validation:[/bold] score={val.get('score')} passed={val.get('passed')} "
+        f"(after {result['fix_attempts']} fix round(s))"
+    )
+    console.print("[bold green]Final:[/bold green]")
+    console.print(final.get("summary", "—"))
+    if final.get("recommendation"):
+        console.print(f"[bold]Recommendation:[/bold] {final['recommendation']}")
+    cost = result.get("cost", {})
+    console.print(f"[dim]cost: {cost.get('tokens',0)} tokens / ${cost.get('usd',0)}[/dim]")
+    console.print(f"[bold]Workspace:[/bold] {cfg.WORKSPACE_DIR}")
+
+
 @app.command(name="prompts-dump")
 def prompts_dump(
     out: str = typer.Option("exported_prompts", "--out", help="Output directory"),

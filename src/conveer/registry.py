@@ -65,6 +65,12 @@ REGISTRY: dict[str, RoleSpec] = {
     # --- control / self-improvement plane ---
     "critic": RoleSpec("critic", "Critic / QA", "lead", skills=("evaluation",), allowed_tools=[]),
     "coach": RoleSpec("coach", "Coach", "lead", skills=("prompt improvement",), allowed_tools=[]),
+    # --- generic 3-agent triad (one contour, 3 Claudes) ---
+    "orchestrator": RoleSpec(
+        "orchestrator", "Orchestrator", "lead", kind="orchestrator",
+        skills=("brief", "synthesize"), allowed_tools=[],
+    ),
+    "worker": RoleSpec("worker", "Worker", "worker", skills=("execute",), allowed_tools=[]),
 }
 
 # Roles that form the control plane (not improvable by themselves to avoid

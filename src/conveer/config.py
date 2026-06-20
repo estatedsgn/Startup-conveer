@@ -46,6 +46,9 @@ ROLE_MODELS: dict[str, str] = {
     # control / self-improvement plane (reasoning-heavy)
     "critic": LEAD_MODEL,
     "coach": LEAD_MODEL,
+    # generic 3-agent triad
+    "orchestrator": LEAD_MODEL,
+    "worker": WORKER_MODEL,
 }
 
 # --- runtime tuning ---
@@ -101,3 +104,28 @@ class Settings:
 def load_settings() -> Settings:
     """Build a Settings snapshot from the current environment."""
     return Settings()
+
+
+@dataclass
+class AgentAuth:
+    """Which Claude a given role talks to (its own subscription/key)."""
+
+    provider: str            # "cli" | "api"
+    api_key: str = ""        # for provider=api
+    cli_config_dir: str | None = None  # for provider=cli (separate logged-in account)
+
+
+def resolve_auth(role: str, settings: Settings | None = None) -> AgentAuth:
+    """Resolve per-role credentials so each agent can be a distinct Claude.
+
+    Env overrides (role upper-cased), falling back to the global config:
+      CONVEER_PROVIDER_<ROLE>   cli|api for this role
+      CONVEER_KEY_<ROLE>        Anthropic API key for this role
+      CONVEER_CLAUDE_DIR_<ROLE> CLAUDE_CONFIG_DIR for this role (separate CLI login)
+    """
+    settings = settings or load_settings()
+    r = role.upper()
+    provider = os.getenv(f"CONVEER_PROVIDER_{r}", settings.provider)
+    api_key = os.getenv(f"CONVEER_KEY_{r}", "") or (settings.api_key if provider == "api" else "")
+    cli_dir = os.getenv(f"CONVEER_CLAUDE_DIR_{r}")
+    return AgentAuth(provider=provider, api_key=api_key, cli_config_dir=cli_dir)

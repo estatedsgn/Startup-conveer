@@ -109,19 +109,23 @@ def run_agent(
     session_id: str | None = None,
     settings: config.Settings | None = None,
     allowed_tools: list[str] | None = None,
+    auth: "config.AgentAuth | None" = None,
 ) -> RunResult:
     """Run a Claude agent with an explicit (pre-composed) system prompt.
 
-    Dispatches to the configured provider: "cli" (headless `claude`, your
-    subscription) or "api" (Anthropic API, for parallel automation). `label` is
-    only used in error messages.
+    `auth` binds this call to a specific Claude (its own API key or CLI login),
+    so different roles can run on different subscriptions. Without it, the global
+    provider/credentials from `settings` are used.
     """
     settings = settings or config.load_settings()
-    if settings.provider == "api":
-        return _run_via_api(system_prompt, prompt, model=model, label=label, settings=settings)
+    provider = auth.provider if auth else settings.provider
+    if provider == "api":
+        return _run_via_api(
+            system_prompt, prompt, model=model, label=label, settings=settings, auth=auth
+        )
     return _run_via_cli(
         system_prompt, prompt, model=model, label=label,
-        session_id=session_id, settings=settings, allowed_tools=allowed_tools,
+        session_id=session_id, settings=settings, allowed_tools=allowed_tools, auth=auth,
     )
 
 
@@ -134,6 +138,7 @@ def _run_via_cli(
     session_id: str | None,
     settings: config.Settings,
     allowed_tools: list[str] | None,
+    auth: "config.AgentAuth | None" = None,
 ) -> RunResult:
     claude_bin = shutil.which("claude") or "claude"
     cmd = build_command(
@@ -145,9 +150,16 @@ def _run_via_cli(
         claude_bin=claude_bin,
     )
 
+    env = None
+    if auth and auth.cli_config_dir:
+        import os
+
+        env = {**os.environ, "CLAUDE_CONFIG_DIR": auth.cli_config_dir}
+
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=settings.subordinate_timeout
+            cmd, capture_output=True, text=True,
+            timeout=settings.subordinate_timeout, env=env,
         )
     except FileNotFoundError as exc:
         raise SubordinateError(
@@ -174,17 +186,19 @@ def _run_via_api(
     model: str | None,
     label: str,
     settings: config.Settings,
+    auth: "config.AgentAuth | None" = None,
 ) -> RunResult:
     try:
         import anthropic
     except ImportError as exc:  # pragma: no cover
         raise SubordinateError("anthropic SDK not installed (pip install anthropic).") from exc
 
-    if not settings.api_key:
+    api_key = (auth.api_key if auth else "") or settings.api_key
+    if not api_key:
         raise SubordinateError("ANTHROPIC_API_KEY not set (required for provider=api).")
 
     model = model or settings.worker_model
-    client = anthropic.Anthropic(api_key=settings.api_key)
+    client = anthropic.Anthropic(api_key=api_key)
     try:
         resp = client.messages.create(
             model=model,
