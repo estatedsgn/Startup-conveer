@@ -12,7 +12,6 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from . import config
@@ -38,13 +37,18 @@ class RunResult:
         return self.input_tokens + self.output_tokens
 
 
-def load_role_prompt(role: str, roles_dir: Path | None = None) -> str:
-    """Load the system prompt for a role from roles/<role>.md."""
-    roles_dir = roles_dir or config.ROLES_DIR
-    path = roles_dir / f"{role}.md"
-    if not path.exists():
-        raise SubordinateError(f"No role prompt found for '{role}' at {path}")
-    return path.read_text(encoding="utf-8")
+def load_role_prompt(role: str, settings: config.Settings | None = None) -> str:
+    """Load the *current* system prompt for a role (evolved version or baseline).
+
+    Routes through the versioned prompt store so any Coach improvements take
+    effect immediately on the next invocation.
+    """
+    from . import prompt_store
+
+    try:
+        return prompt_store.current_prompt(role, settings).text
+    except FileNotFoundError as exc:
+        raise SubordinateError(str(exc)) from exc
 
 
 def build_command(
@@ -110,7 +114,7 @@ def run_subordinate(
     """
     settings = settings or config.load_settings()
     claude_bin = shutil.which("claude") or "claude"
-    system_prompt = load_role_prompt(role, settings.roles_dir)
+    system_prompt = load_role_prompt(role, settings)
     cmd = build_command(
         prompt=prompt,
         system_prompt=system_prompt,

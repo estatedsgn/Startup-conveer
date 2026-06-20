@@ -18,6 +18,8 @@ runs/
 *.sqlite
 *.sqlite3
 .conveer/
+# evolving (AI-rewritten) prompts — local learning state; baselines live in src/conveer/roles
+prompts/
 
 # tooling
 .pytest_cache/

@@ -26,13 +26,36 @@ class RoleSpec:
 
 
 REGISTRY: dict[str, RoleSpec] = {
+    # --- department #1: idea generation + initial testing ---
     "idea_generator": RoleSpec(
         "idea_generator", "Idea Generator", "worker", allowed_tools=[]
     ),
     "analyst": RoleSpec("analyst", "Research Analyst", "lead", allowed_tools=[]),
     "reporter": RoleSpec("reporter", "Reporter", "worker", allowed_tools=[]),
     "ceo": RoleSpec("ceo", "CEO", "lead", allowed_tools=[]),
+    # --- expanded roster (workers) ---
+    "market_researcher": RoleSpec(
+        "market_researcher", "Market Researcher", "worker", allowed_tools=[]
+    ),
+    "competitor_analyst": RoleSpec(
+        "competitor_analyst", "Competitor Analyst", "worker", allowed_tools=[]
+    ),
+    "copywriter": RoleSpec("copywriter", "Copywriter", "worker", allowed_tools=[]),
+    "outreach_planner": RoleSpec(
+        "outreach_planner", "Outreach Planner", "worker", allowed_tools=[]
+    ),
+    # --- control / self-improvement plane ---
+    "critic": RoleSpec("critic", "Critic / QA", "lead", allowed_tools=[]),
+    "coach": RoleSpec("coach", "Coach", "lead", allowed_tools=[]),
 }
+
+# Roles that form the control plane (not improvable by themselves to avoid
+# the loop rewriting its own judge/teacher unsupervised).
+CONTROL_PLANE = {"critic", "coach"}
+
+
+def improvable_roles() -> list[str]:
+    return [name for name in REGISTRY if name not in CONTROL_PLANE]
 
 
 def get_role(name: str) -> RoleSpec:

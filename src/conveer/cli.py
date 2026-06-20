@@ -200,5 +200,94 @@ def resume(run_id: str = typer.Argument(..., help="Run id to resume")) -> None:
     _run_with_saver(run_id, make_first)
 
 
+@app.command()
+def roster() -> None:
+    """List all agents (the company headcount) with model and prompt version."""
+    from . import prompt_store
+    from .registry import CONTROL_PLANE, REGISTRY
+
+    table = Table(show_header=True, header_style="bold", title="Conveer roster")
+    table.add_column("role")
+    table.add_column("title")
+    table.add_column("tier")
+    table.add_column("model")
+    table.add_column("prompt")
+    table.add_column("plane")
+    for name, spec in REGISTRY.items():
+        cur = prompt_store.current_prompt(name)
+        plane = "control" if name in CONTROL_PLANE else "worker/dept"
+        table.add_row(name, spec.title, spec.tier, spec.model(), cur.label, plane)
+    console.print(table)
+
+
+@app.command()
+def improve(
+    role: str = typer.Option(..., "--role", "-r", help="Role to train"),
+    task: str = typer.Option(..., "--task", help="Representative task to exercise it"),
+    rounds: int = typer.Option(config.IMPROVE_MAX_ROUNDS, "--rounds", help="Max improvement rounds"),
+    bar: float = typer.Option(config.IMPROVE_BAR, "--bar", help="Pass threshold (0..1)"),
+) -> None:
+    """Train one agent: work -> critic -> coach rewrites its prompt -> repeat."""
+    from .improve import improve_role
+    from .registry import CONTROL_PLANE
+
+    if role in CONTROL_PLANE:
+        console.print(f"[yellow]{role} is control-plane and isn't self-trained.[/yellow]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Training[/bold] {role} (bar={bar}, max rounds={rounds})")
+    try:
+        final = improve_role(role, task, bar=bar, max_rounds=rounds)
+    except SubordinateError as exc:
+        console.print(f"[bold red]Subordinate failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("round", justify="right")
+    table.add_column("version")
+    table.add_column("score", justify="right")
+    table.add_column("passed")
+    table.add_column("fundamental issues")
+    for e in final.get("history", []):
+        table.add_row(
+            str(e.get("round")), str(e.get("version")), f"{e.get('score'):.2f}",
+            "✅" if e.get("passed") else "❌",
+            "; ".join(filter(None, e.get("issues", []))) or "—",
+        )
+    console.print(table)
+    cost = final.get("cost", {})
+    console.print(
+        f"[green]Best version now active:[/green] v{final.get('selected_version')} "
+        f"[dim]· cost {cost.get('tokens',0)} tokens / ${cost.get('usd',0)}[/dim]"
+    )
+
+
+@app.command(name="prompt-history")
+def prompt_history(role: str = typer.Argument(..., help="Role to inspect")) -> None:
+    """Show the evolution of a role's system prompt."""
+    from . import prompt_store
+
+    hist = prompt_store.history(role)
+    cur = prompt_store.current_prompt(role)
+    console.print(f"[bold]{role}[/bold] — current: {cur.label}")
+    if not hist:
+        console.print("[dim]No evolved versions yet (running on baseline).[/dim]")
+        return
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("version")
+    table.add_column("score", justify="right")
+    table.add_column("created")
+    table.add_column("rationale")
+    for v in hist:
+        score = v.get("score")
+        table.add_row(
+            f"v{v.get('version')}",
+            f"{score:.2f}" if isinstance(score, (int, float)) else "—",
+            str(v.get("created", "")),
+            str(v.get("rationale", "")),
+        )
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()
