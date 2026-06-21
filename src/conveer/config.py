@@ -30,6 +30,8 @@ TEAMS_FILE = Path(os.getenv("CONVEER_TEAMS", str(PROJECT_ROOT / "teams.yaml")))
 # Lead tier = reasoning-heavy roles (CEO, Analyst, control plane). Worker tier = cheaper.
 LEAD_MODEL = os.getenv("CONVEER_MODEL_LEAD", "claude-opus-4-8")
 WORKER_MODEL = os.getenv("CONVEER_MODEL_WORKER", "claude-sonnet-4-6")
+# Codex tier = OpenAI coding model, driven through the `codex` CLI (provider=codex).
+CODEX_MODEL = os.getenv("CONVEER_MODEL_CODEX", "gpt-5-codex")
 
 # Map each role to a model. Keeping it explicit makes cost obvious.
 ROLE_MODELS: dict[str, str] = {
@@ -49,6 +51,11 @@ ROLE_MODELS: dict[str, str] = {
     # generic 3-agent triad
     "orchestrator": LEAD_MODEL,
     "worker": WORKER_MODEL,
+    # marketing / PR department (2 Claude "think & write" + 2 Codex "build & automate")
+    "cmo": LEAD_MODEL,
+    "smm_copywriter": WORKER_MODEL,
+    "lead_scout": CODEX_MODEL,
+    "outreach_operator": CODEX_MODEL,
 }
 
 # --- runtime tuning ---
@@ -108,24 +115,49 @@ def load_settings() -> Settings:
 
 @dataclass
 class AgentAuth:
-    """Which Claude a given role talks to (its own subscription/key)."""
+    """Which runtime/account a given role talks to (its own subscription/key).
 
-    provider: str            # "cli" | "api"
+    A role can be a distinct Claude (cli login or API key) *or* a Codex agent
+    (separate `codex` CLI login), so a team can mix providers.
+    """
+
+    provider: str            # "cli" (Claude CLI) | "api" (Anthropic API) | "codex" (Codex CLI)
     api_key: str = ""        # for provider=api
     cli_config_dir: str | None = None  # for provider=cli (separate logged-in account)
+    codex_home: str | None = None      # for provider=codex (CODEX_HOME, separate login)
+    model: str | None = None           # optional per-agent model override
 
 
 def resolve_auth(role: str, settings: Settings | None = None) -> AgentAuth:
-    """Resolve per-role credentials so each agent can be a distinct Claude.
+    """Resolve per-role credentials so each agent can be a distinct brain.
 
     Env overrides (role upper-cased), falling back to the global config:
-      CONVEER_PROVIDER_<ROLE>   cli|api for this role
-      CONVEER_KEY_<ROLE>        Anthropic API key for this role
-      CONVEER_CLAUDE_DIR_<ROLE> CLAUDE_CONFIG_DIR for this role (separate CLI login)
+      CONVEER_PROVIDER_<ROLE>   cli|api|codex for this role
+      CONVEER_KEY_<ROLE>        Anthropic API key for this role (provider=api)
+      CONVEER_CLAUDE_DIR_<ROLE> CLAUDE_CONFIG_DIR for this role (separate Claude CLI login)
+      CONVEER_CODEX_HOME_<ROLE> CODEX_HOME for this role (separate Codex CLI login)
+      CONVEER_MODEL_<ROLE>      model id override for this role
     """
     settings = settings or load_settings()
     r = role.upper()
     provider = os.getenv(f"CONVEER_PROVIDER_{r}", settings.provider)
     api_key = os.getenv(f"CONVEER_KEY_{r}", "") or (settings.api_key if provider == "api" else "")
     cli_dir = os.getenv(f"CONVEER_CLAUDE_DIR_{r}")
-    return AgentAuth(provider=provider, api_key=api_key, cli_config_dir=cli_dir)
+    codex_home = os.getenv(f"CONVEER_CODEX_HOME_{r}")
+    model = os.getenv(f"CONVEER_MODEL_{r}")
+    return AgentAuth(
+        provider=provider, api_key=api_key, cli_config_dir=cli_dir,
+        codex_home=codex_home, model=model,
+    )
+
+
+def agent_workdir(role: str, settings: Settings | None = None) -> Path:
+    """Each agent's own working area inside the shared workspace.
+
+    Codex agents run with this as their CWD (`codex exec -C <dir>`), so each one
+    builds artifacts in its own folder without stepping on the others.
+    """
+    settings = settings or load_settings()
+    d = settings.workspace_dir / "agents" / role
+    d.mkdir(parents=True, exist_ok=True)
+    return d

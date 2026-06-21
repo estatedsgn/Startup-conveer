@@ -22,7 +22,18 @@ from .workspace import Workspace
 def invoke_agent(
     system_prompt: str, prompt: str, *, model: str, label: str, settings: config.Settings
 ) -> runner.RunResult:
-    return runner.run_agent(system_prompt, prompt, model=model, label=label, settings=settings)
+    """Run a delegated agent on ITS OWN brain (per-role auth + working folder).
+
+    Each role resolves its own provider/login (Claude CLI, Anthropic API, or
+    Codex CLI) and runs inside its own workspace subfolder, so a team can mix
+    providers and not collide on artifacts.
+    """
+    auth = config.resolve_auth(label, settings)
+    workdir = str(config.agent_workdir(label, settings))
+    return runner.run_agent(
+        system_prompt, prompt, model=model, label=label,
+        settings=settings, auth=auth, workdir=workdir,
+    )
 
 
 @dataclass

@@ -71,6 +71,23 @@ REGISTRY: dict[str, RoleSpec] = {
         skills=("brief", "synthesize"), allowed_tools=[],
     ),
     "worker": RoleSpec("worker", "Worker", "worker", skills=("execute",), allowed_tools=[]),
+    # --- marketing / PR department (Claude thinks & writes, Codex builds & automates) ---
+    "cmo": RoleSpec(
+        "cmo", "CMO (marketing lead)", "lead", kind="orchestrator",
+        skills=("marketing strategy", "content plan", "approval gate"), allowed_tools=[],
+    ),
+    "smm_copywriter": RoleSpec(
+        "smm_copywriter", "SMM Copywriter", "worker",
+        skills=("channel posts", "outreach drafts", "copy"), allowed_tools=[],
+    ),
+    "lead_scout": RoleSpec(
+        "lead_scout", "Lead Scout", "worker",
+        skills=("public-source scan", "lead discovery", "data tooling"), allowed_tools=[],
+    ),
+    "outreach_operator": RoleSpec(
+        "outreach_operator", "Outreach Operator", "worker",
+        skills=("send queue", "scheduling", "inbound handling"), allowed_tools=[],
+    ),
 }
 
 # Roles that form the control plane (not improvable by themselves to avoid

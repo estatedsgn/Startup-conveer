@@ -90,6 +90,46 @@ conveer improve --role copywriter --task "..."  # critic scores -> coach rewrite
 conveer prompt-history copywriter             # how the prompt evolved
 ```
 
+## Heterogeneous crews — mix Claude + Codex (per-role brains)
+
+Each role can run on its **own** runtime and login, so one team can blend
+providers: a role is either a Claude (CLI login or Anthropic API) **or** a Codex
+agent (headless `codex exec`). Set it per role via env (role upper-cased):
+
+```bash
+CONVEER_PROVIDER_<ROLE>=cli|api|codex
+CONVEER_KEY_<ROLE>=sk-ant-...        # provider=api
+CONVEER_CLAUDE_DIR_<ROLE>=~/.claude-x  # provider=cli (separate Claude login)
+CONVEER_CODEX_HOME_<ROLE>=~/.codex-x   # provider=codex (separate Codex login)
+CONVEER_MODEL_<ROLE>=<model-id>      # optional per-role model override
+```
+
+Every agent also gets its own working folder under `workspace/agents/<role>/`
+(Codex runs there via `codex exec -C`), so artifacts never collide.
+
+### Marketing / PR department
+
+A ready crew — **2 Claude that think & write + 2 Codex that build & automate** —
+that runs the company's Telegram channel, finds & qualifies leads, and prepares
+outreach behind an **approval gate** (compliance-first: own-channel posting is
+automated; cold outreach is queued for the owner's one-click approval; auto-reply
+only to opt-in/inbound — never mass-DM or ToS-violating automation).
+
+```
+cmo (Claude) ──> { smm_copywriter (Claude), lead_scout (Codex), outreach_operator (Codex) }
+```
+
+```bash
+conveer org --root cmo                                          # show the dept
+CONVEER_TEAMS=teams.marketing.yaml conveer run-goal \
+  "Grow the Telegram channel and queue 10 qualified outreach drafts" --root cmo
+```
+
+Wire the per-agent logins in `.env` (see the "Marketing crew" block in
+`.env.example`). Live runs need the `claude` and `codex` CLIs installed and
+logged in. Telegram posting/inbound integration (Bot API) is the next layer on
+top of this agent foundation.
+
 ## Tests
 
 ```bash

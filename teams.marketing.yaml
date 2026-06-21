@@ -1,0 +1,8 @@
+# Marketing / PR department — who delegates to whom.
+# Run with:  CONVEER_TEAMS=teams.marketing.yaml conveer run-goal "<goal>" --root cmo
+#
+# Behaviour/rules live in each agent's SYSTEM PROMPT (src/conveer/roles/*.md);
+# providers/logins per agent are set via env (see .env.example, "Marketing crew").
+
+cmo:
+  delegates_to: [smm_copywriter, lead_scout, outreach_operator]

@@ -76,6 +76,83 @@ def build_command(
     return cmd
 
 
+def build_codex_command(
+    *,
+    prompt: str,
+    system_prompt: str = "",
+    model: str | None = None,
+    workdir: str | None = None,
+    json_output: bool = True,
+    codex_bin: str = "codex",
+) -> list[str]:
+    """Build the argv for a headless `codex exec` invocation.
+
+    Codex has no `--append-system-prompt`, so the role/system prompt is prepended
+    to the task in a single prompt. Each agent runs in its own ``workdir`` so its
+    artifacts don't collide with the others. Kept separate for unit testing.
+    """
+    full_prompt = prompt
+    if system_prompt:
+        full_prompt = f"{system_prompt}\n\n=== TASK ===\n\n{prompt}"
+    cmd = [codex_bin, "exec", "--skip-git-repo-check"]
+    if json_output:
+        cmd.append("--json")
+    if model:
+        cmd += ["--model", model]
+    if workdir:
+        cmd += ["-C", workdir]
+    cmd.append(full_prompt)
+    return cmd
+
+
+def parse_codex_output(stdout: str) -> RunResult:
+    """Parse `codex exec --json` output (JSONL events) into a RunResult.
+
+    Tolerant by design: codex's event schema varies by version, so we scan every
+    JSON line for the latest agent message and any token-usage event, and fall
+    back to treating the whole output as plain text if it isn't JSONL.
+    """
+    stdout = stdout.strip()
+    if not stdout:
+        raise SubordinateError("Empty output from codex")
+
+    text = ""
+    in_tok = out_tok = 0
+    saw_json = False
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        saw_json = True
+        msg = obj.get("msg", obj) if isinstance(obj, dict) else {}
+        mtype = msg.get("type")
+        if mtype in {"agent_message", "assistant_message"} and msg.get("message"):
+            text = msg["message"]
+        elif obj.get("type") == "item.completed" and isinstance(obj.get("item"), dict):
+            item = obj["item"]
+            if item.get("text"):
+                text = item["text"]
+        elif not text and isinstance(msg.get("message"), str):
+            text = msg["message"]
+        # token accounting (best-effort; field names vary across versions)
+        usage = msg.get("usage") if isinstance(msg.get("usage"), dict) else msg
+        if "input_tokens" in usage or "output_tokens" in usage:
+            in_tok = int(usage.get("input_tokens", in_tok) or in_tok)
+            out_tok = int(usage.get("output_tokens", out_tok) or out_tok)
+
+    if not saw_json:
+        # Not JSONL (e.g. --json unsupported): treat the raw output as the answer.
+        return RunResult(text=stdout)
+    if not text:
+        raise SubordinateError("codex produced no agent message")
+    return RunResult(text=text, input_tokens=in_tok, output_tokens=out_tok,
+                     raw={"runtime": "codex"})
+
+
 def parse_output(stdout: str) -> RunResult:
     """Parse the JSON emitted by `claude -p --output-format json`."""
     stdout = stdout.strip()
@@ -110,18 +187,26 @@ def run_agent(
     settings: config.Settings | None = None,
     allowed_tools: list[str] | None = None,
     auth: "config.AgentAuth | None" = None,
+    workdir: str | None = None,
 ) -> RunResult:
-    """Run a Claude agent with an explicit (pre-composed) system prompt.
+    """Run an agent with an explicit (pre-composed) system prompt.
 
-    `auth` binds this call to a specific Claude (its own API key or CLI login),
-    so different roles can run on different subscriptions. Without it, the global
-    provider/credentials from `settings` are used.
+    `auth` binds this call to a specific brain (its own API key, Claude CLI login,
+    or Codex CLI login), so different roles can run on different runtimes. Without
+    it, the global provider/credentials from `settings` are used.
     """
     settings = settings or config.load_settings()
     provider = auth.provider if auth else settings.provider
+    if auth and auth.model:
+        model = auth.model
     if provider == "api":
         return _run_via_api(
             system_prompt, prompt, model=model, label=label, settings=settings, auth=auth
+        )
+    if provider == "codex":
+        return _run_via_codex_cli(
+            system_prompt, prompt, model=model, label=label,
+            settings=settings, workdir=workdir, auth=auth,
         )
     return _run_via_cli(
         system_prompt, prompt, model=model, label=label,
@@ -177,6 +262,56 @@ def _run_via_cli(
         )
 
     return parse_output(proc.stdout)
+
+
+def _run_via_codex_cli(
+    system_prompt: str,
+    prompt: str,
+    *,
+    model: str | None,
+    label: str,
+    settings: config.Settings,
+    workdir: str | None = None,
+    auth: "config.AgentAuth | None" = None,
+) -> RunResult:
+    """Run one Codex agent through the headless `codex exec` CLI.
+
+    Its own login is selected via CODEX_HOME (so two Codex agents are two
+    distinct accounts) and it works inside its own ``workdir``.
+    """
+    import os
+
+    codex_bin = shutil.which("codex") or "codex"
+    cmd = build_codex_command(
+        prompt=prompt, system_prompt=system_prompt,
+        model=model, workdir=workdir, codex_bin=codex_bin,
+    )
+
+    env = None
+    if auth and auth.codex_home:
+        env = {**os.environ, "CODEX_HOME": auth.codex_home}
+
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=settings.subordinate_timeout, env=env,
+        )
+    except FileNotFoundError as exc:
+        raise SubordinateError(
+            "`codex` CLI not found. Install it and log in (see README)."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SubordinateError(
+            f"Agent '{label}' (codex) timed out after {settings.subordinate_timeout}s"
+        ) from exc
+
+    if proc.returncode != 0:
+        raise SubordinateError(
+            f"Agent '{label}' (codex) exited with code {proc.returncode}: "
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
+
+    return parse_codex_output(proc.stdout)
 
 
 def _run_via_api(

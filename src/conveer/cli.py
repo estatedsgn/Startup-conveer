@@ -290,22 +290,26 @@ def prompt_history(role: str = typer.Argument(..., help="Role to inspect")) -> N
 
 
 @app.command(name="org")
-def org_cmd() -> None:
+def org_cmd(
+    root: str = typer.Option("chief", "--root", help="Top of the org to render"),
+) -> None:
     """Show the agent org chart (who delegates to whom)."""
     from . import org as orgmod
     from .registry import REGISTRY
 
     teams = orgmod.load_teams()
     if not teams:
-        console.print("[yellow]No teams.yaml found.[/yellow]")
+        console.print("[yellow]No teams file found.[/yellow]")
         return
+    if root not in teams and root not in orgmod.subtree_roles(teams, next(iter(teams))):
+        console.print(f"[yellow]Root {root!r} not in this org; try --root {next(iter(teams))}.[/yellow]")
     console.print("[bold]Org chart[/bold]")
-    console.print(orgmod.render_tree(orgmod.tree(teams, "chief")))
+    console.print(orgmod.render_tree(orgmod.tree(teams, root)))
     table = Table(show_header=True, header_style="bold", title="Agents in the org")
     table.add_column("role")
     table.add_column("kind")
     table.add_column("delegates_to")
-    for role in sorted(orgmod.subtree_roles(teams, "chief")):
+    for role in sorted(orgmod.subtree_roles(teams, root)):
         spec = REGISTRY.get(role)
         table.add_row(role, spec.kind if spec else "?", ", ".join(orgmod.delegates_of(role, teams)) or "—")
     console.print(table)
